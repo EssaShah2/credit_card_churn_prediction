@@ -1,12 +1,9 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
-from sklearn.compose import ColumnTransformer
-from sklearn.ensemble import RandomForestClassifier
+import joblib
 
-# 1. Page Configuration & Custom CSS (Responsive & Modern Design)
+# 1. Page Configuration & Custom CSS
 st.set_page_config(
     page_title="Customer Churn Predictor",
     page_icon="📊",
@@ -24,89 +21,64 @@ st.markdown("""
         height: 3em;
         font-weight: 600;
     }
-    .metric-card {
-        background-color: #f8f9fa;
-        border-radius: 10px;
-        padding: 15px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-    }
     </style>
 """, unsafe_allow_html=True)
 
-# 2. Pipeline & Model Training Function
+# 2. Load Pre-trained Artifacts (Model, Scaler, Transformer)
 @st.cache_resource
-def train_pipeline():
-    # Load dataset match training pipeline
-    df = pd.read_csv("Customer-Churn-Records.csv")
-    df.drop(columns=['RowNumber', 'CustomerId', 'Surname'], inplace=True)
-    
-    x = df.drop(columns=['Exited'])
-    y = df['Exited']
-    
-    x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.2, random_state=42)
-    
-    # Column Transformer matching your notebook
-    trf1 = ColumnTransformer([
-        ('onehot', OneHotEncoder(drop='first', sparse_output=False, handle_unknown='ignore'), ['Geography', 'Gender', 'Card Type'])
-    ], remainder='passthrough')
-    
-    trf1.set_output(transform='pandas')
-    x_train_trf = trf1.fit_transform(x_train)
-    
-    # Scaler transformation
-    scaler = StandardScaler()
-    x_train_scaled = scaler.fit_transform(x_train_trf)
-    x_train_scaled = pd.DataFrame(x_train_scaled, columns=trf1.get_feature_names_out())
-    
-    # Train classifier model
-    model = RandomForestClassifier(random_state=42)
-    model.fit(x_train_scaled, y_train)
-    
-    return trf1, scaler, model, df
+def load_artifacts():
+    # Update file paths if saved in a subfolder (e.g., 'models/scaler.pkl')
+    trf1 = joblib.load("transformer.pkl")
+    scaler = joblib.load("scaler.pkl")
+    model = joblib.load("model.pkl")
+    return trf1, scaler, model
 
 try:
-    trf1, scaler, model, original_df = train_pipeline()
+    trf1, scaler, model = load_artifacts()
 except Exception as e:
-    st.error(f"Error loading dataset or model pipeline: {e}")
+    st.error(f"Error loading saved model artifacts: {e}")
+    st.info("Ensure 'transformer.pkl', 'scaler.pkl', and 'model.pkl' exist in your working directory.")
     st.stop()
 
-# 3. Auto-fill Sample Feature Logic
-if 'form_data' not in st.session_state:
-    st.session_state.form_data = {
-        'CreditScore': 650,
-        'Geography': 'France',
-        'Gender': 'Female',
-        'Age': 35,
-        'Tenure': 5,
-        'Balance': 50000.0,
-        'NumOfProducts': 1,
-        'HasCrCard': 1,
-        'IsActiveMember': 1,
-        'EstimatedSalary': 75000.0,
-        'Complain': 0,
-        'Satisfaction Score': 3,
-        'Card Type': 'GOLD',
-        'Point Earned': 500
-    }
+# 3. Sample Data Logic (Static Default/Sample Profiles)
+def fill_sample_data(sample_type="default"):
+    if sample_type == "churn":
+        st.session_state.form_data = {
+            'CreditScore': 502,
+            'Geography': 'Germany',
+            'Gender': 'Female',
+            'Age': 42,
+            'Tenure': 8,
+            'Balance': 159660.80,
+            'NumOfProducts': 3,
+            'HasCrCard': 1,
+            'IsActiveMember': 0,
+            'EstimatedSalary': 113931.57,
+            'Complain': 1,
+            'Satisfaction Score': 2,
+            'Card Type': 'DIAMOND',
+            'Point Earned': 320
+        }
+    else:
+        st.session_state.form_data = {
+            'CreditScore': 650,
+            'Geography': 'France',
+            'Gender': 'Female',
+            'Age': 35,
+            'Tenure': 5,
+            'Balance': 50000.0,
+            'NumOfProducts': 1,
+            'HasCrCard': 1,
+            'IsActiveMember': 1,
+            'EstimatedSalary': 75000.0,
+            'Complain': 0,
+            'Satisfaction Score': 3,
+            'Card Type': 'GOLD',
+            'Point Earned': 500
+        }
 
-def fill_sample_data():
-    sample = original_df.sample(1).iloc[0]
-    st.session_state.form_data = {
-        'CreditScore': int(sample['CreditScore']),
-        'Geography': str(sample['Geography']),
-        'Gender': str(sample['Gender']),
-        'Age': int(sample['Age']),
-        'Tenure': int(sample['Tenure']),
-        'Balance': float(sample['Balance']),
-        'NumOfProducts': int(sample['NumOfProducts']),
-        'HasCrCard': int(sample['HasCrCard']),
-        'IsActiveMember': int(sample['IsActiveMember']),
-        'EstimatedSalary': float(sample['EstimatedSalary']),
-        'Complain': int(sample['Complain']),
-        'Satisfaction Score': int(sample['Satisfaction Score']),
-        'Card Type': str(sample['Card Type']),
-        'Point Earned': int(sample['Point Earned'])
-    }
+if 'form_data' not in st.session_state:
+    fill_sample_data("default")
 
 # 4. Interface Header
 st.title("💳 Customer Churn Analytics & Prediction")
@@ -114,11 +86,12 @@ st.write("Predict churn risk using machine learning based on customer activity m
 
 col_btn1, col_btn2 = st.columns([1, 4])
 with col_btn1:
-    st.button("🎲 Auto-Fill Random Customer Data", on_click=fill_sample_data)
+    if st.button("🎲 Auto-Fill Sample Data"):
+        fill_sample_data("churn")
 
 st.divider()
 
-# 5. Input Form Layout (Responsive Grid)
+# 5. Input Form Layout
 with st.form("churn_form"):
     st.subheader("Customer Demographic & Financial Details")
     c1, c2, c3 = st.columns(3)
@@ -145,7 +118,7 @@ with st.form("churn_form"):
 
     submit = st.form_submit_button("Predict Churn Status", use_container_width=True)
 
-# 6. Processing & Prediction Logic
+# 6. Processing & Prediction Pipeline Execution
 if submit:
     input_data = pd.DataFrame([{
         'CreditScore': credit_score,
@@ -164,7 +137,7 @@ if submit:
         'Point Earned': points
     }])
 
-    # Transform input using pre-fitted transformers
+    # Apply loaded preprocessor transforms
     input_trf = trf1.transform(input_data)
     input_scaled = scaler.transform(input_trf)
     input_scaled_df = pd.DataFrame(input_scaled, columns=trf1.get_feature_names_out())
