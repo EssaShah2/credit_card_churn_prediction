@@ -3,7 +3,14 @@ import pandas as pd
 import numpy as np
 import joblib
 
-# 1. Page Configuration & Custom CSS
+# Optional TensorFlow import check
+try:
+    import tensorflow as tf
+    TF_AVAILABLE = True
+except ImportError:
+    TF_AVAILABLE = False
+
+# 1. Page Setup
 st.set_page_config(
     page_title="Customer Churn Predictor",
     page_icon="📊",
@@ -17,42 +24,44 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# 2. Load Pre-trained Artifacts
+# 2. Artifact Loader
 @st.cache_resource
 def load_artifacts():
     trf1 = joblib.load("transformer.pkl")
     scaler = joblib.load("scaler.pkl")
-    model = joblib.load("model.pkl")
+    
+    # Check if model is saved via Keras (.keras/.h5) or joblib (.pkl)
+    try:
+        if TF_AVAILABLE:
+            try:
+                model = tf.keras.models.load_model("churn_model.keras")
+            except Exception:
+                model = tf.keras.models.load_model("churn_model.h5")
+        else:
+            model = joblib.load("model.pkl")
+    except Exception:
+        model = joblib.load("model.pkl")
+        
     return trf1, scaler, model
 
 try:
     trf1, scaler, model = load_artifacts()
 except Exception as e:
-    st.error(f"Error loading saved model artifacts: {e}")
-    st.info("Ensure 'transformer.pkl', 'scaler.pkl', and 'model.pkl' exist in your app directory.")
+    st.error(f"Error loading artifacts: {e}")
+    st.info("Ensure preprocessor (.pkl) and model files exist in the project directory.")
     st.stop()
 
-# 3. Initialize Default Session State Values
+# 3. Session State & Form Defaults
 defaults = {
-    'credit_score': 650,
-    'geography': 'France',
-    'gender': 'Female',
-    'age': 35,
-    'tenure': 5,
-    'balance': 50000.0,
-    'num_products': 1,
-    'has_card': 1,
-    'is_active': 1,
-    'salary': 75000.0,
-    'complain': 0,
-    'satisfaction': 3,
-    'card_type': 'GOLD',
-    'points': 500
+    'credit_score': 650, 'geography': 'France', 'gender': 'Female',
+    'age': 35, 'tenure': 5, 'balance': 50000.0, 'num_products': 1,
+    'has_card': 1, 'is_active': 1, 'salary': 75000.0,
+    'complain': 0, 'satisfaction': 3, 'card_type': 'GOLD', 'points': 500
 }
 
-for k, v in defaults.items():
-    if k not in st.session_state:
-        st.session_state[k] = v
+for key, val in defaults.items():
+    if key not in st.session_state:
+        st.session_state[key] = val
 
 def fill_high_risk_sample():
     st.session_state.credit_score = 502
@@ -70,17 +79,17 @@ def fill_high_risk_sample():
     st.session_state.card_type = 'DIAMOND'
     st.session_state.points = 200
 
-# 4. Header & Controls
+# 4. Interface Header
 st.title("💳 Customer Churn Analytics & Prediction")
 st.write("Predict churn risk using machine learning based on customer activity metrics.")
 
-col_btn1, col_btn2 = st.columns([1, 4])
+col_btn1, _ = st.columns([1, 4])
 with col_btn1:
     st.button("🎲 Auto-Fill High Risk Sample", on_click=fill_high_risk_sample)
 
 st.divider()
 
-# 5. Input Form (Using dynamic keys to update values reliably)
+# 5. Form Input Layout
 with st.form("churn_form"):
     st.subheader("Customer Demographic & Financial Details")
     c1, c2, c3 = st.columns(3)
@@ -107,9 +116,9 @@ with st.form("churn_form"):
 
     submit = st.form_submit_button("Predict Churn Status", use_container_width=True)
 
-# 6. Prediction Execution
+# 6. Pipeline Processing & Inference
 if submit:
-    # Match EXACT feature names expected by the notebook transformer
+    # Build raw input DataFrame matching training feature structure
     input_df = pd.DataFrame([{
         'CreditScore': st.session_state.credit_score,
         'Geography': st.session_state.geography,
@@ -127,32 +136,26 @@ if submit:
         'Point Earned': st.session_state.points
     }])
 
-    # Apply preprocessing pipeline
-    input_trf = trf1.transform(input_df)
-    input_scaled = scaler.transform(input_trf)
+    # Preprocessing pipeline
+    transformed_data = trf1.transform(input_df)
+    scaled_data = scaler.transform(transformed_data)
+    arr_data = np.asarray(scaled_data, dtype=np.float32)
 
-    # Convert to array to prevent feature name mismatching
-    if isinstance(input_scaled, pd.DataFrame):
-        arr_data = input_scaled.values
-    else:
-        arr_data = np.asarray(input_scaled)
-
-    # Predict
-    prediction = int(model.predict(arr_data)[0])
-
+    # Safe Keras/Scikit prediction handling
     if hasattr(model, "predict_proba"):
         probability = float(model.predict_proba(arr_data)[0][1])
-    elif hasattr(model, "decision_function"):
-        dec_score = float(model.decision_function(arr_data)[0])
-        probability = float(1 / (1 + np.exp(-dec_score)))
     else:
-        probability = float(prediction)
+        # Keras models output probability tensor via .predict()
+        raw_pred = model.predict(arr_data, verbose=0)
+        probability = float(np.ravel(raw_pred)[0])
+
+    prediction = 1 if probability >= 0.5 else 0
 
     st.divider()
     res_col1, res_col2 = st.columns(2)
 
     with res_col1:
-        if prediction == 1 or probability >= 0.5:
+        if prediction == 1:
             st.error("⚠️ **High Risk of Churn**")
             st.write("This customer is likely to leave the service.")
         else:
