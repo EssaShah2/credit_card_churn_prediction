@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import joblib
-from tensorflow.keras.models import load_model
 
 # Page Configuration
 st.set_page_config(
@@ -11,19 +10,19 @@ st.set_page_config(
     layout="centered"
 )
 
-# 1. Load trained models and transformers
+# 1. Load trained models and transformers (.pkl files)
 @st.cache_resource
 def load_assets():
-    model = load_model('model.h5')  # Or 'model.keras'
+    model = joblib.load('model.pkl')
     scaler = joblib.load('scaler.pkl')
-    transformer = joblib.load('transformer.pkl')  # Your OneHotEncoder or ColumnTransformer
+    transformer = joblib.load('transformer.pkl')
     return model, scaler, transformer
 
 try:
     model, scaler, transformer = load_assets()
 except Exception as e:
     st.error(f"Error loading model files: {e}")
-    st.info("Ensure model.h5, scaler.pkl, and transformer.pkl are uploaded in your GitHub repo.")
+    st.info("Ensure model.pkl, scaler.pkl, and transformer.pkl are present in your GitHub repo.")
     st.stop()
 
 # Title
@@ -71,8 +70,7 @@ if submit_button:
     }])
 
     try:
-        # Step A: Apply Transformer
-        # Handles whether transformer is ColumnTransformer or standalone OneHotEncoder
+        # Step A: Apply Transformer (OneHotEncoder / ColumnTransformer)
         if hasattr(transformer, "transform"):
             transformed_data = transformer.transform(raw_input)
         else:
@@ -84,8 +82,16 @@ if submit_button:
         else:
             processed_input = transformed_data
 
-        # Step C: Predict
-        prediction = model.predict(processed_input)[0][0]
+        # Step C: Predict Probability
+        if hasattr(model, "predict_proba"):
+            # For Scikit-Learn models like RandomForest or XGBoost
+            prediction = model.predict_proba(processed_input)[0][1]
+        else:
+            # For Neural Networks or direct probability estimators
+            prediction = model.predict(processed_input)[0]
+            if isinstance(prediction, (np.ndarray, list)):
+                prediction = prediction[0]
+
         churn_prob = float(prediction) * 100
 
         # Display Results
@@ -105,4 +111,4 @@ if submit_button:
 
     except Exception as err:
         st.error(f"Error during feature processing: {err}")
-        st.warning("Ensure feature column names and transformer structures match your training notebook.")
+        st.warning("Ensure feature column names in app.py match the ones used in model training.")
