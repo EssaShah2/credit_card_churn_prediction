@@ -12,163 +12,138 @@ st.set_page_config(
 
 st.markdown("""
     <style>
-    .main {
-        padding: 2rem 2rem;
-    }
-    .stButton>button {
-        width: 100%;
-        border-radius: 8px;
-        height: 3em;
-        font-weight: 600;
-    }
+    .main { padding: 2rem 2rem; }
+    .stButton>button { width: 100%; border-radius: 8px; height: 3em; font-weight: 600; }
     </style>
 """, unsafe_allow_html=True)
 
-# 2. Dynamic Loader (Fixes swapped/out-of-order pkl files)
+# 2. Load Pre-trained Artifacts
 @st.cache_resource
 def load_artifacts():
-    p1 = joblib.load("transformer.pkl")
-    p2 = joblib.load("scaler.pkl")
-    p3 = joblib.load("model.pkl")
-
-    objects = [p1, p2, p3]
-    trf1, scaler, model = None, None, None
-
-    for obj in objects:
-        if hasattr(obj, "predict"):
-            model = obj
-        elif hasattr(obj, "scale_") or hasattr(obj, "mean_"):
-            scaler = obj
-        else:
-            trf1 = obj
-
+    trf1 = joblib.load("transformer.pkl")
+    scaler = joblib.load("scaler.pkl")
+    model = joblib.load("model.pkl")
     return trf1, scaler, model
 
 try:
     trf1, scaler, model = load_artifacts()
-    if None in (trf1, scaler, model):
-        st.error("Failed to map .pkl files correctly. Verify transformer.pkl, scaler.pkl, and model.pkl contents.")
-        st.stop()
 except Exception as e:
     st.error(f"Error loading saved model artifacts: {e}")
+    st.info("Ensure 'transformer.pkl', 'scaler.pkl', and 'model.pkl' exist in your app directory.")
     st.stop()
 
-# 3. Sample Data Logic
-def fill_sample_data(sample_type="default"):
-    if sample_type == "churn":
-        st.session_state.form_data = {
-            'CreditScore': 502,
-            'Geography': 'Germany',
-            'Gender': 'Female',
-            'Age': 42,
-            'Tenure': 8,
-            'Balance': 159660.80,
-            'NumOfProducts': 3,
-            'HasCrCard': 1,
-            'IsActiveMember': 0,
-            'EstimatedSalary': 113931.57,
-            'Complain': 1,
-            'Satisfaction Score': 2,
-            'Card Type': 'DIAMOND',
-            'Point Earned': 320
-        }
-    else:
-        st.session_state.form_data = {
-            'CreditScore': 650,
-            'Geography': 'France',
-            'Gender': 'Female',
-            'Age': 35,
-            'Tenure': 5,
-            'Balance': 50000.0,
-            'NumOfProducts': 1,
-            'HasCrCard': 1,
-            'IsActiveMember': 1,
-            'EstimatedSalary': 75000.0,
-            'Complain': 0,
-            'Satisfaction Score': 3,
-            'Card Type': 'GOLD',
-            'Point Earned': 500
-        }
+# 3. Initialize Default Session State Values
+defaults = {
+    'credit_score': 650,
+    'geography': 'France',
+    'gender': 'Female',
+    'age': 35,
+    'tenure': 5,
+    'balance': 50000.0,
+    'num_products': 1,
+    'has_card': 1,
+    'is_active': 1,
+    'salary': 75000.0,
+    'complain': 0,
+    'satisfaction': 3,
+    'card_type': 'GOLD',
+    'points': 500
+}
 
-if 'form_data' not in st.session_state:
-    fill_sample_data("default")
+for k, v in defaults.items():
+    if k not in st.session_state:
+        st.session_state[k] = v
 
-# 4. Interface Header
+def fill_high_risk_sample():
+    st.session_state.credit_score = 502
+    st.session_state.geography = 'Germany'
+    st.session_state.gender = 'Female'
+    st.session_state.age = 52
+    st.session_state.tenure = 2
+    st.session_state.balance = 125000.0
+    st.session_state.num_products = 3
+    st.session_state.has_card = 1
+    st.session_state.is_active = 0
+    st.session_state.salary = 113931.0
+    st.session_state.complain = 1
+    st.session_state.satisfaction = 1
+    st.session_state.card_type = 'DIAMOND'
+    st.session_state.points = 200
+
+# 4. Header & Controls
 st.title("💳 Customer Churn Analytics & Prediction")
 st.write("Predict churn risk using machine learning based on customer activity metrics.")
 
 col_btn1, col_btn2 = st.columns([1, 4])
 with col_btn1:
-    if st.button("🎲 Auto-Fill Sample Data"):
-        fill_sample_data("churn")
+    st.button("🎲 Auto-Fill High Risk Sample", on_click=fill_high_risk_sample)
 
 st.divider()
 
-# 5. Input Form Layout
+# 5. Input Form (Using dynamic keys to update values reliably)
 with st.form("churn_form"):
     st.subheader("Customer Demographic & Financial Details")
     c1, c2, c3 = st.columns(3)
     
     with c1:
-        credit_score = st.number_input("Credit Score", 300, 850, value=st.session_state.form_data['CreditScore'])
-        geography = st.selectbox("Geography", ["France", "Spain", "Germany"], index=["France", "Spain", "Germany"].index(st.session_state.form_data['Geography']))
-        gender = st.selectbox("Gender", ["Female", "Male"], index=["Female", "Male"].index(st.session_state.form_data['Gender']))
-        age = st.number_input("Age", 18, 100, value=st.session_state.form_data['Age'])
-        tenure = st.slider("Tenure (Years)", 0, 10, value=st.session_state.form_data['Tenure'])
+        st.number_input("Credit Score", 300, 850, key="credit_score")
+        st.selectbox("Geography", ["France", "Spain", "Germany"], key="geography")
+        st.selectbox("Gender", ["Female", "Male"], key="gender")
+        st.number_input("Age", 18, 100, key="age")
+        st.slider("Tenure (Years)", 0, 10, key="tenure")
 
     with c2:
-        balance = st.number_input("Account Balance ($)", 0.0, 300000.0, value=st.session_state.form_data['Balance'])
-        num_products = st.slider("Number of Products", 1, 4, value=st.session_state.form_data['NumOfProducts'])
-        has_card = st.selectbox("Has Credit Card?", [0, 1], index=st.session_state.form_data['HasCrCard'], format_func=lambda x: "Yes" if x == 1 else "No")
-        is_active = st.selectbox("Is Active Member?", [0, 1], index=st.session_state.form_data['IsActiveMember'], format_func=lambda x: "Yes" if x == 1 else "No")
-        salary = st.number_input("Estimated Salary ($)", 0.0, 250000.0, value=st.session_state.form_data['EstimatedSalary'])
+        st.number_input("Account Balance ($)", 0.0, 300000.0, key="balance")
+        st.slider("Number of Products", 1, 4, key="num_products")
+        st.selectbox("Has Credit Card?", [0, 1], format_func=lambda x: "Yes" if x == 1 else "No", key="has_card")
+        st.selectbox("Is Active Member?", [0, 1], format_func=lambda x: "Yes" if x == 1 else "No", key="is_active")
+        st.number_input("Estimated Salary ($)", 0.0, 250000.0, key="salary")
 
     with c3:
-        complain = st.selectbox("Customer Complain Filed?", [0, 1], index=st.session_state.form_data['Complain'], format_func=lambda x: "Yes" if x == 1 else "No")
-        satisfaction = st.slider("Satisfaction Score", 1, 5, value=st.session_state.form_data['Satisfaction Score'])
-        card_type = st.selectbox("Card Type", ["DIAMOND", "GOLD", "SILVER", "PLATINUM"], index=["DIAMOND", "GOLD", "SILVER", "PLATINUM"].index(st.session_state.form_data['Card Type']))
-        points = st.number_input("Points Earned", 0, 1000, value=st.session_state.form_data['Point Earned'])
+        st.selectbox("Customer Complain Filed?", [0, 1], format_func=lambda x: "Yes" if x == 1 else "No", key="complain")
+        st.slider("Satisfaction Score", 1, 5, key="satisfaction")
+        st.selectbox("Card Type", ["DIAMOND", "GOLD", "SILVER", "PLATINUM"], key="card_type")
+        st.number_input("Points Earned", 0, 1000, key="points")
 
     submit = st.form_submit_button("Predict Churn Status", use_container_width=True)
 
-# 6. Processing & Prediction Pipeline
+# 6. Prediction Execution
 if submit:
-    input_data = pd.DataFrame([{
-        'CreditScore': credit_score,
-        'Geography': geography,
-        'Gender': gender,
-        'Age': age,
-        'Tenure': tenure,
-        'Balance': balance,
-        'NumOfProducts': num_products,
-        'HasCrCard': has_card,
-        'IsActiveMember': is_active,
-        'EstimatedSalary': salary,
-        'Complain': complain,
-        'Satisfaction Score': satisfaction,
-        'Card Type': card_type,
-        'Point Earned': points
+    # Match EXACT feature names expected by the notebook transformer
+    input_df = pd.DataFrame([{
+        'CreditScore': st.session_state.credit_score,
+        'Geography': st.session_state.geography,
+        'Gender': st.session_state.gender,
+        'Age': st.session_state.age,
+        'Tenure': st.session_state.tenure,
+        'Balance': st.session_state.balance,
+        'NumOfProducts': st.session_state.num_products,
+        'HasCrCard': st.session_state.has_card,
+        'IsActiveMember': st.session_state.is_active,
+        'EstimatedSalary': st.session_state.salary,
+        'Complain': st.session_state.complain,
+        'Satisfaction Score': st.session_state.satisfaction,
+        'Card Type': st.session_state.card_type,
+        'Point Earned': st.session_state.points
     }])
 
-    # Transformations
-    input_trf = trf1.transform(input_data)
+    # Apply preprocessing pipeline
+    input_trf = trf1.transform(input_df)
     input_scaled = scaler.transform(input_trf)
 
-    # Convert to numeric array to avoid feature name mismatch errors
+    # Convert to array to prevent feature name mismatching
     if isinstance(input_scaled, pd.DataFrame):
-        input_array = input_scaled.values
+        arr_data = input_scaled.values
     else:
-        input_array = np.asarray(input_scaled)
+        arr_data = np.asarray(input_scaled)
 
-    # Safe Prediction
-    raw_pred = model.predict(input_array)
-    prediction = int(np.ravel(raw_pred)[0])
+    # Predict
+    prediction = int(model.predict(arr_data)[0])
 
-    # Safe Probability
     if hasattr(model, "predict_proba"):
-        probability = float(model.predict_proba(input_array)[0][1])
+        probability = float(model.predict_proba(arr_data)[0][1])
     elif hasattr(model, "decision_function"):
-        dec_score = float(model.decision_function(input_array)[0])
+        dec_score = float(model.decision_function(arr_data)[0])
         probability = float(1 / (1 + np.exp(-dec_score)))
     else:
         probability = float(prediction)
@@ -177,7 +152,7 @@ if submit:
     res_col1, res_col2 = st.columns(2)
 
     with res_col1:
-        if prediction == 1:
+        if prediction == 1 or probability >= 0.5:
             st.error("⚠️ **High Risk of Churn**")
             st.write("This customer is likely to leave the service.")
         else:
