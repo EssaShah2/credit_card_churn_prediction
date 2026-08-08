@@ -24,10 +24,9 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# 2. Load Pre-trained Artifacts (Model, Scaler, Transformer)
+# 2. Load Pre-trained Artifacts
 @st.cache_resource
 def load_artifacts():
-    # Update file paths if saved in a subfolder (e.g., 'models/scaler.pkl')
     trf1 = joblib.load("transformer.pkl")
     scaler = joblib.load("scaler.pkl")
     model = joblib.load("model.pkl")
@@ -40,7 +39,7 @@ except Exception as e:
     st.info("Ensure 'transformer.pkl', 'scaler.pkl', and 'model.pkl' exist in your working directory.")
     st.stop()
 
-# 3. Sample Data Logic (Static Default/Sample Profiles)
+# 3. Sample Data Logic
 def fill_sample_data(sample_type="default"):
     if sample_type == "churn":
         st.session_state.form_data = {
@@ -118,7 +117,7 @@ with st.form("churn_form"):
 
     submit = st.form_submit_button("Predict Churn Status", use_container_width=True)
 
-# 6. Processing & Prediction Pipeline Execution
+# 6. Processing & Prediction Logic
 if submit:
     input_data = pd.DataFrame([{
         'CreditScore': credit_score,
@@ -137,15 +136,31 @@ if submit:
         'Point Earned': points
     }])
 
-    # Apply loaded preprocessor transforms
+    # Step A: One-Hot Transform
     input_trf = trf1.transform(input_data)
+
+    # Step B: Standard Scaling
     input_scaled = scaler.transform(input_trf)
-    input_scaled_df = pd.DataFrame(input_scaled, columns=trf1.get_feature_names_out())
 
-    # Generate Prediction
-    prediction = model.predict(input_scaled_df)[0]
-    probability = model.predict_proba(input_scaled_df)[0][1]
+    # Step C: Re-align columns safely for model entry
+    if hasattr(trf1, "get_feature_names_out"):
+        cols = trf1.get_feature_names_out()
+        input_scaled_df = pd.DataFrame(input_scaled, columns=cols)
+    else:
+        input_scaled_df = input_scaled
 
+    # Step D: Safe Prediction & Probability Extraction
+    prediction = int(model.predict(input_scaled_df)[0])
+
+    if hasattr(model, "predict_proba"):
+        probability = float(model.predict_proba(input_scaled_df)[0][1])
+    elif hasattr(model, "decision_function"):
+        dec_score = float(model.decision_function(input_scaled_df)[0])
+        probability = float(1 / (1 + np.exp(-dec_score)))
+    else:
+        probability = float(prediction)
+
+    # Output Visuals
     st.divider()
     res_col1, res_col2 = st.columns(2)
 
@@ -159,4 +174,4 @@ if submit:
 
     with res_col2:
         st.metric(label="Churn Probability", value=f"{probability * 100:.2f}%")
-        st.progress(probability)
+        st.progress(max(0.0, min(probability, 1.0)))
