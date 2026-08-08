@@ -24,19 +24,33 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# 2. Load Pre-trained Artifacts
+# 2. Dynamic Loader (Fixes swapped/out-of-order pkl files)
 @st.cache_resource
 def load_artifacts():
-    trf1 = joblib.load("transformer.pkl")
-    scaler = joblib.load("scaler.pkl")
-    model = joblib.load("model.pkl")
+    p1 = joblib.load("transformer.pkl")
+    p2 = joblib.load("scaler.pkl")
+    p3 = joblib.load("model.pkl")
+
+    objects = [p1, p2, p3]
+    trf1, scaler, model = None, None, None
+
+    for obj in objects:
+        if hasattr(obj, "predict"):
+            model = obj
+        elif hasattr(obj, "scale_") or hasattr(obj, "mean_"):
+            scaler = obj
+        else:
+            trf1 = obj
+
     return trf1, scaler, model
 
 try:
     trf1, scaler, model = load_artifacts()
+    if None in (trf1, scaler, model):
+        st.error("Failed to map .pkl files correctly. Verify transformer.pkl, scaler.pkl, and model.pkl contents.")
+        st.stop()
 except Exception as e:
     st.error(f"Error loading saved model artifacts: {e}")
-    st.info("Ensure 'transformer.pkl', 'scaler.pkl', and 'model.pkl' exist in your working directory.")
     st.stop()
 
 # 3. Sample Data Logic
@@ -117,7 +131,7 @@ with st.form("churn_form"):
 
     submit = st.form_submit_button("Predict Churn Status", use_container_width=True)
 
-# 6. Processing & Prediction Logic
+# 6. Processing & Prediction Pipeline
 if submit:
     input_data = pd.DataFrame([{
         'CreditScore': credit_score,
@@ -136,31 +150,29 @@ if submit:
         'Point Earned': points
     }])
 
-    # Step A: One-Hot Transform
+    # Transformations
     input_trf = trf1.transform(input_data)
-
-    # Step B: Standard Scaling
     input_scaled = scaler.transform(input_trf)
 
-    # Step C: Re-align columns safely for model entry
-    if hasattr(trf1, "get_feature_names_out"):
-        cols = trf1.get_feature_names_out()
-        input_scaled_df = pd.DataFrame(input_scaled, columns=cols)
+    # Convert to numeric array to avoid feature name mismatch errors
+    if isinstance(input_scaled, pd.DataFrame):
+        input_array = input_scaled.values
     else:
-        input_scaled_df = input_scaled
+        input_array = np.asarray(input_scaled)
 
-    # Step D: Safe Prediction & Probability Extraction
-    prediction = int(model.predict(input_scaled_df)[0])
+    # Safe Prediction
+    raw_pred = model.predict(input_array)
+    prediction = int(np.ravel(raw_pred)[0])
 
+    # Safe Probability
     if hasattr(model, "predict_proba"):
-        probability = float(model.predict_proba(input_scaled_df)[0][1])
+        probability = float(model.predict_proba(input_array)[0][1])
     elif hasattr(model, "decision_function"):
-        dec_score = float(model.decision_function(input_scaled_df)[0])
+        dec_score = float(model.decision_function(input_array)[0])
         probability = float(1 / (1 + np.exp(-dec_score)))
     else:
         probability = float(prediction)
 
-    # Output Visuals
     st.divider()
     res_col1, res_col2 = st.columns(2)
 
