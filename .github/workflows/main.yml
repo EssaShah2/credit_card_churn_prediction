@@ -1,0 +1,13 @@
+name: Keep Streamlit App Alive
+
+on:
+  schedule:
+    - cron: '0 */4 * * *' # Runs every 4 hours
+  workflow_dispatch: # Allows manual trigger
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Streamlit App
+        run: curl -s https://creditcardchurnprediction-fn.streamlit.app/ > /dev/null
